@@ -30,6 +30,7 @@ public class ProdSecurityConfig {
                         .requestMatchers("/products/**").permitAll()
                         .requestMatchers("/customers/**").permitAll()
                         .requestMatchers("/orders/**").permitAll()
+                        .requestMatchers("/dashboard/**").permitAll()
                         .requestMatchers("/chat/**").permitAll()
                         .requestMatchers("/analytics/**").permitAll()
                         .requestMatchers("/reports/**").permitAll()
