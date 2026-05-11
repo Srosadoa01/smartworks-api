@@ -17,6 +17,7 @@ public class ProdSecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/health", "/error").permitAll()
                         .requestMatchers("/auth/**").permitAll()
                         .anyRequest().authenticated());
 
