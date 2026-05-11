@@ -17,8 +17,13 @@ public class ProdSecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/health", "/error").permitAll()
-                        .requestMatchers("/auth/**").permitAll()
+                        // TEMPORAL para probar la API desplegada
+                        .requestMatchers("/products/**").permitAll()
+                        .requestMatchers("/customers/**").permitAll()
+                        .requestMatchers("/orders/**").permitAll()
+                        .requestMatchers("/chat/**").permitAll()
+                        .requestMatchers("/analytics/**").permitAll()
+                        .requestMatchers("/reports/**").permitAll()
                         .anyRequest().authenticated());
 
         // Luego aquí metemos el JwtAuthFilter cuando lo reactivemos
