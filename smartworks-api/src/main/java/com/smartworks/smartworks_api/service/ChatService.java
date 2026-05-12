@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -51,8 +53,11 @@ public class ChatService {
         this.orderService = orderService;
     }
 
-    public ChatResponse handle(ChatRequest req) {
+    public ChatResponse handle(ChatRequest req, Authentication authentication) {
         try {
+            boolean isAdmin = isAdmin(authentication);
+            String roleText = isAdmin ? "ADMIN" : "USER";
+
             String conversationId = resolveConversationId(req);
             String userMessage = (req.getMessage() == null) ? "" : req.getMessage().trim();
 
@@ -72,107 +77,12 @@ public class ChatService {
             String normalizedMessage = normalizeUserMessage(userMessage);
             List<ChatMemoryMessage> history = getConversationHistory(conversationId);
 
-            List<Map<String, Object>> tools = List.of(
-                    Map.of(
-                            "type", "function",
-                            "name", "get_low_stock_products",
-                            "description", "Devuelve productos con stock bajo.",
-                            "parameters", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of(),
-                                    "additionalProperties", false)),
-                    Map.of(
-                            "type", "function",
-                            "name", "get_out_of_stock_products",
-                            "description", "Devuelve productos agotados o sin stock.",
-                            "parameters", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of(),
-                                    "additionalProperties", false)),
-                    Map.of(
-                            "type", "function",
-                            "name", "get_products_summary",
-                            "description", "Devuelve un resumen general del inventario.",
-                            "parameters", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of(),
-                                    "additionalProperties", false)),
-                    Map.of(
-                            "type", "function",
-                            "name", "get_recent_orders",
-                            "description", "Devuelve los 5 pedidos más recientes.",
-                            "parameters", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of(),
-                                    "additionalProperties", false)),
-                    Map.of(
-                            "type", "function",
-                            "name", "get_month_orders_summary",
-                            "description", "Devuelve un resumen de pedidos del mes actual.",
-                            "parameters", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of(),
-                                    "additionalProperties", false)),
-                    Map.of(
-                            "type", "function",
-                            "name", "find_customer_by_name",
-                            "description", "Busca clientes por nombre.",
-                            "parameters", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of(
-                                            "name", Map.of(
-                                                    "type", "string",
-                                                    "description", "Nombre o parte del nombre del cliente")),
-                                    "required", List.of("name"),
-                                    "additionalProperties", false)),
-                    Map.of(
-                            "type", "function",
-                            "name", "find_product_by_name",
-                            "description", "Busca productos por nombre.",
-                            "parameters", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of(
-                                            "name", Map.of(
-                                                    "type", "string",
-                                                    "description", "Nombre o parte del nombre del producto")),
-                                    "required", List.of("name"),
-                                    "additionalProperties", false)),
-                    Map.of(
-                            "type", "function",
-                            "name", "create_customer",
-                            "description", "Crea un nuevo cliente.",
-                            "parameters", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of(
-                                            "name", Map.of("type", "string"),
-                                            "email", Map.of("type", "string"),
-                                            "phone", Map.of("type", "string"),
-                                            "address", Map.of("type", "string")),
-                                    "required", List.of("name"),
-                                    "additionalProperties", false)),
-                    Map.of(
-                            "type", "function",
-                            "name", "create_order",
-                            "description", "Crea un nuevo pedido para un cliente. Necesita customerId y líneas con productId y quantity.",
-                            "parameters", Map.of(
-                                    "type", "object",
-                                    "properties", Map.of(
-                                            "customerId", Map.of("type", "integer"),
-                                            "lines", Map.of(
-                                                    "type", "array",
-                                                    "items", Map.of(
-                                                            "type", "object",
-                                                            "properties", Map.of(
-                                                                    "productId", Map.of("type", "integer"),
-                                                                    "quantity", Map.of("type", "integer")),
-                                                            "required", List.of("productId", "quantity"),
-                                                            "additionalProperties", false))),
-                                    "required", List.of("customerId", "lines"),
-                                    "additionalProperties", false)));
+            List<Map<String, Object>> tools = buildTools(isAdmin);
 
             String systemPrompt =
                     "Eres el asistente virtual de SmartWorks. " +
                     "Responde siempre en español con tono profesional, claro y breve. " +
+                    "El usuario actual tiene rol " + roleText + ". " +
                     "Puedes consultar inventario, pedidos y clientes, y también crear clientes y pedidos. " +
                     "Debes tener en cuenta el contexto reciente de la conversación. " +
                     "Si el usuario responde con frases como 'sí', 'vale', 'hazlo', 'adelante', 'ok' o similares, " +
@@ -185,11 +95,12 @@ public class ChatService {
                     "Para agotados usa get_out_of_stock_products. " +
                     "Para inventario general usa get_products_summary. " +
                     "Para pedidos recientes usa get_recent_orders. " +
-                    "Para pedidos del mes usa get_month_orders_summary. " +
                     "Para localizar clientes usa find_customer_by_name. " +
                     "Para localizar productos usa find_product_by_name. " +
                     "Para crear clientes usa create_customer. " +
-                    "Para crear pedidos usa create_order.";
+                    "Para crear pedidos usa create_order. " +
+                    "Solo los usuarios ADMIN pueden consultar el resumen mensual avanzado de pedidos. " +
+                    "Si un USER pide estadísticas avanzadas, analizador, reportes o resumen mensual, indica que esa función requiere permisos de administrador.";
 
             Map<String, Object> body1 = new HashMap<>();
             body1.put("model", "gpt-4.1-mini");
@@ -208,6 +119,7 @@ public class ChatService {
                 String fallback = (direct == null || direct.isBlank())
                         ? "No he podido interpretar la consulta. Puedes preguntarme por inventario, clientes o pedidos."
                         : direct;
+
                 fallback = limitResponseLength(fallback);
                 addMessageToHistory(conversationId, "assistant", fallback);
                 return new ChatResponse(fallback);
@@ -224,30 +136,45 @@ public class ChatService {
                 case "get_low_stock_products":
                     toolResult = getLowStockProducts();
                     break;
+
                 case "get_out_of_stock_products":
                     toolResult = getOutOfStockProducts();
                     break;
+
                 case "get_products_summary":
                     toolResult = getProductsSummary();
                     break;
+
                 case "get_recent_orders":
                     toolResult = getRecentOrders();
                     break;
+
                 case "get_month_orders_summary":
-                    toolResult = getMonthOrdersSummary();
+                    if (!isAdmin) {
+                        toolResult = Map.of(
+                                "error", "No tienes permisos para consultar el resumen mensual. Esta función es solo para administradores."
+                        );
+                    } else {
+                        toolResult = getMonthOrdersSummary();
+                    }
                     break;
+
                 case "find_customer_by_name":
                     toolResult = findCustomerByName(argumentsJson);
                     break;
+
                 case "find_product_by_name":
                     toolResult = findProductByName(argumentsJson);
                     break;
+
                 case "create_customer":
                     toolResult = createCustomer(argumentsJson);
                     break;
+
                 case "create_order":
                     toolResult = createOrder(argumentsJson);
                     break;
+
                 default:
                     toolResult = Map.of("error", "Función no implementada: " + fnName);
                     break;
@@ -266,6 +193,7 @@ public class ChatService {
                     "Si la operación ha creado un cliente o un pedido, confírmalo claramente. " +
                     "Ten en cuenta el contexto reciente de la conversación. " +
                     "No menciones JSON, herramientas, funciones ni base de datos. " +
+                    "Si el resultado indica falta de permisos, explícalo de forma amable y breve. " +
                     "Máximo aproximado de 120 palabras. " +
                     "Cuando encaje, termina con una frase breve de apoyo.");
             body2.put("input", List.of(
@@ -277,6 +205,7 @@ public class ChatService {
             Map<String, Object> r2 = openAi.createResponse(body2);
 
             String finalText = extractText(r2);
+
             if (finalText == null || finalText.isBlank()) {
                 String fallback = "He procesado la consulta, pero no he podido generar una respuesta en este momento.";
                 addMessageToHistory(conversationId, "assistant", fallback);
@@ -296,9 +225,11 @@ public class ChatService {
 
     private String resolveConversationId(ChatRequest req) {
         String conversationId = req.getConversationId();
+
         if (conversationId == null || conversationId.isBlank()) {
             return "default";
         }
+
         return conversationId.trim();
     }
 
@@ -307,7 +238,9 @@ public class ChatService {
     }
 
     private void addMessageToHistory(String conversationId, String role, String content) {
-        if (content == null || content.isBlank()) return;
+        if (content == null || content.isBlank()) {
+            return;
+        }
 
         List<ChatMemoryMessage> history = getConversationHistory(conversationId);
         history.add(new ChatMemoryMessage(role, content));
@@ -318,7 +251,11 @@ public class ChatService {
         }
     }
 
-    private List<Map<String, Object>> buildInputWithHistory(String systemPrompt, List<ChatMemoryMessage> history, String userMessage) {
+    private List<Map<String, Object>> buildInputWithHistory(
+            String systemPrompt,
+            List<ChatMemoryMessage> history,
+            String userMessage
+    ) {
         List<Map<String, Object>> input = new ArrayList<>();
 
         input.add(Map.of(
@@ -344,6 +281,7 @@ public class ChatService {
 
     private boolean isGreeting(String message) {
         String msg = message.toLowerCase().trim();
+
         return msg.equals("hola")
                 || msg.equals("buenas")
                 || msg.equals("buenos dias")
@@ -355,8 +293,9 @@ public class ChatService {
     }
 
     private String normalizeUserMessage(String message) {
-        if (message == null)
+        if (message == null) {
             return "";
+        }
 
         String normalized = message.trim().toLowerCase();
 
@@ -374,16 +313,22 @@ public class ChatService {
     }
 
     private String limitResponseLength(String text) {
-        if (text == null || text.isBlank())
+        if (text == null || text.isBlank()) {
             return text;
+        }
+
         int maxLength = 700;
-        if (text.length() <= maxLength)
+
+        if (text.length() <= maxLength) {
             return text;
+        }
+
         return text.substring(0, maxLength).trim() + "...";
     }
 
     private Object getLowStockProducts() {
         List<Product> low = productRepo.findLowStock();
+
         return low.stream().map(p -> Map.of(
                 "id", p.getId(),
                 "name", p.getName(),
@@ -394,6 +339,7 @@ public class ChatService {
 
     private Object getOutOfStockProducts() {
         List<Product> out = productRepo.findOutOfStock();
+
         return out.stream().map(p -> Map.of(
                 "id", p.getId(),
                 "name", p.getName(),
@@ -450,6 +396,7 @@ public class ChatService {
             return customers.stream().map(c -> Map.of(
                     "id", c.getId(),
                     "name", c.getName())).toList();
+
         } catch (Exception e) {
             return Map.of("error", "No se pudo buscar el cliente.");
         }
@@ -467,6 +414,7 @@ public class ChatService {
                     "name", p.getName(),
                     "price", p.getPrice(),
                     "stock", p.getStock())).toList();
+
         } catch (Exception e) {
             return Map.of("error", "No se pudo buscar el producto.");
         }
@@ -477,6 +425,8 @@ public class ChatService {
             Map<String, Object> args = om.readValue(argumentsJson, new TypeReference<Map<String, Object>>() {});
 
             String name = stringValue(args.get("name"));
+            String email = stringValue(args.get("email"));
+            String phone = stringValue(args.get("phone"));
 
             if (name.isBlank()) {
                 return Map.of("error", "Falta el nombre del cliente.");
@@ -485,12 +435,21 @@ public class ChatService {
             Customer c = new Customer();
             c.setName(name);
 
+            if (!email.isBlank()) {
+                c.setEmail(email);
+            }
+
+            if (!phone.isBlank()) {
+                c.setPhone(phone);
+            }
+
             Customer saved = customerRepo.save(c);
 
             return Map.of(
                     "success", true,
                     "id", saved.getId(),
                     "name", saved.getName());
+
         } catch (Exception e) {
             return Map.of("error", "No se pudo crear el cliente.");
         }
@@ -501,6 +460,7 @@ public class ChatService {
             Map<String, Object> args = om.readValue(argumentsJson, new TypeReference<Map<String, Object>>() {});
 
             Long customerId = toLong(args.get("customerId"));
+
             if (customerId == null) {
                 return Map.of("error", "Falta el customerId.");
             }
@@ -532,18 +492,151 @@ public class ChatService {
                     "customerId", customerId,
                     "status", order.getStatus() != null ? order.getStatus().name() : "UNKNOWN",
                     "linesCount", order.getLines() != null ? order.getLines().size() : 0);
+
         } catch (Exception e) {
             return Map.of("error", "No se pudo crear el pedido.");
         }
     }
 
+    private boolean isAdmin(Authentication authentication) {
+        if (authentication == null || authentication.getAuthorities() == null) {
+            return false;
+        }
+
+        for (GrantedAuthority authority : authentication.getAuthorities()) {
+            if ("ROLE_ADMIN".equals(authority.getAuthority())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private List<Map<String, Object>> buildTools(boolean isAdmin) {
+        List<Map<String, Object>> tools = new ArrayList<>();
+
+        tools.add(Map.of(
+                "type", "function",
+                "name", "get_low_stock_products",
+                "description", "Devuelve productos con stock bajo.",
+                "parameters", Map.of(
+                        "type", "object",
+                        "properties", Map.of(),
+                        "additionalProperties", false)));
+
+        tools.add(Map.of(
+                "type", "function",
+                "name", "get_out_of_stock_products",
+                "description", "Devuelve productos agotados o sin stock.",
+                "parameters", Map.of(
+                        "type", "object",
+                        "properties", Map.of(),
+                        "additionalProperties", false)));
+
+        tools.add(Map.of(
+                "type", "function",
+                "name", "get_products_summary",
+                "description", "Devuelve un resumen general del inventario.",
+                "parameters", Map.of(
+                        "type", "object",
+                        "properties", Map.of(),
+                        "additionalProperties", false)));
+
+        tools.add(Map.of(
+                "type", "function",
+                "name", "get_recent_orders",
+                "description", "Devuelve los 5 pedidos más recientes.",
+                "parameters", Map.of(
+                        "type", "object",
+                        "properties", Map.of(),
+                        "additionalProperties", false)));
+
+        if (isAdmin) {
+            tools.add(Map.of(
+                    "type", "function",
+                    "name", "get_month_orders_summary",
+                    "description", "Devuelve un resumen de pedidos del mes actual. Solo disponible para ADMIN.",
+                    "parameters", Map.of(
+                            "type", "object",
+                            "properties", Map.of(),
+                            "additionalProperties", false)));
+        }
+
+        tools.add(Map.of(
+                "type", "function",
+                "name", "find_customer_by_name",
+                "description", "Busca clientes por nombre.",
+                "parameters", Map.of(
+                        "type", "object",
+                        "properties", Map.of(
+                                "name", Map.of(
+                                        "type", "string",
+                                        "description", "Nombre o parte del nombre del cliente")),
+                        "required", List.of("name"),
+                        "additionalProperties", false)));
+
+        tools.add(Map.of(
+                "type", "function",
+                "name", "find_product_by_name",
+                "description", "Busca productos por nombre.",
+                "parameters", Map.of(
+                        "type", "object",
+                        "properties", Map.of(
+                                "name", Map.of(
+                                        "type", "string",
+                                        "description", "Nombre o parte del nombre del producto")),
+                        "required", List.of("name"),
+                        "additionalProperties", false)));
+
+        tools.add(Map.of(
+                "type", "function",
+                "name", "create_customer",
+                "description", "Crea un nuevo cliente.",
+                "parameters", Map.of(
+                        "type", "object",
+                        "properties", Map.of(
+                                "name", Map.of("type", "string"),
+                                "email", Map.of("type", "string"),
+                                "phone", Map.of("type", "string"),
+                                "address", Map.of("type", "string")),
+                        "required", List.of("name"),
+                        "additionalProperties", false)));
+
+        tools.add(Map.of(
+                "type", "function",
+                "name", "create_order",
+                "description", "Crea un nuevo pedido para un cliente. Necesita customerId y líneas con productId y quantity.",
+                "parameters", Map.of(
+                        "type", "object",
+                        "properties", Map.of(
+                                "customerId", Map.of("type", "integer"),
+                                "lines", Map.of(
+                                        "type", "array",
+                                        "items", Map.of(
+                                                "type", "object",
+                                                "properties", Map.of(
+                                                        "productId", Map.of("type", "integer"),
+                                                        "quantity", Map.of("type", "integer")),
+                                                "required", List.of("productId", "quantity"),
+                                                "additionalProperties", false))),
+                        "required", List.of("customerId", "lines"),
+                        "additionalProperties", false)));
+
+        return tools;
+    }
+
     private Long toLong(Object value) {
         try {
-            if (value == null)
+            if (value == null) {
                 return null;
-            if (value instanceof Number n)
+            }
+
+            if (value instanceof Number n) {
                 return n.longValue();
+            }
+
             return Long.parseLong(String.valueOf(value));
+
         } catch (Exception e) {
             return null;
         }
@@ -551,11 +644,16 @@ public class ChatService {
 
     private Integer toInt(Object value) {
         try {
-            if (value == null)
+            if (value == null) {
                 return null;
-            if (value instanceof Number n)
+            }
+
+            if (value instanceof Number n) {
                 return n.intValue();
+            }
+
             return Integer.parseInt(String.valueOf(value));
+
         } catch (Exception e) {
             return null;
         }
@@ -576,42 +674,58 @@ public class ChatService {
     @SuppressWarnings("unchecked")
     private Map<String, Object> findFunctionCall(Map<String, Object> resp) {
         Object outObj = resp.get("output");
-        if (!(outObj instanceof List<?> output))
+
+        if (!(outObj instanceof List<?> output)) {
             return null;
+        }
 
         for (Object o : output) {
-            if (!(o instanceof Map<?, ?> m))
+            if (!(o instanceof Map<?, ?> m)) {
                 continue;
+            }
+
             Map<String, Object> item = (Map<String, Object>) m;
+
             if ("function_call".equals(item.get("type"))) {
                 return item;
             }
         }
+
         return null;
     }
 
     @SuppressWarnings("unchecked")
     private String extractText(Map<String, Object> resp) {
         Object agg = resp.get("output_text");
-        if (agg instanceof String s && !s.isBlank())
+
+        if (agg instanceof String s && !s.isBlank()) {
             return s;
+        }
 
         Object outObj = resp.get("output");
-        if (!(outObj instanceof List<?> output))
+
+        if (!(outObj instanceof List<?> output)) {
             return null;
+        }
 
         for (Object o : output) {
-            if (!(o instanceof Map<?, ?> m))
+            if (!(o instanceof Map<?, ?> m)) {
                 continue;
+            }
+
             Map<String, Object> item = (Map<String, Object>) m;
 
             if ("message".equals(item.get("type"))) {
                 Object contentObj = item.get("content");
+
                 if (contentObj instanceof List<?> contentList) {
                     for (Object c : contentList) {
-                        if (!(c instanceof Map<?, ?> cm0))
+                        if (!(c instanceof Map<?, ?> cm0)) {
                             continue;
+                        }
+
                         Map<String, Object> cm = (Map<String, Object>) cm0;
+
                         if ("output_text".equals(cm.get("type")) && cm.get("text") != null) {
                             return cm.get("text").toString();
                         }
