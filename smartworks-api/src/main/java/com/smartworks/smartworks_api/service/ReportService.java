@@ -43,8 +43,7 @@ public class ReportService {
 
     public ReportService(
             AnalyticsServiceV2 analyticsService,
-            GeneratedReportRepository reportRepo
-    ) {
+            GeneratedReportRepository reportRepo) {
         this.analyticsService = analyticsService;
         this.reportRepo = reportRepo;
     }
@@ -70,14 +69,15 @@ public class ReportService {
 
     private byte[] buildPdf(MonthlyAnalyticsResponseV2 data) {
         try (PDDocument doc = new PDDocument();
-             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
             Pdf pdf = new Pdf(doc);
 
             drawCover(pdf, data);
             drawDashboard(pdf, data);
             drawOrders(pdf, data);
-            drawProductsAndRecommendations(pdf, data);
+            drawProducts(pdf, data);
+            drawRecommendations(pdf, data);
 
             pdf.close();
             drawFooters(pdf, data);
@@ -114,8 +114,7 @@ public class ReportService {
                 460,
                 13,
                 PDType1Font.HELVETICA,
-                MUTED
-        );
+                MUTED);
 
         pdf.roundRect(64, 430, 460, 84, 22, SOFT_BLUE);
         pdf.text("Periodo analizado", 92, 482, PDType1Font.HELVETICA_BOLD, 12, NAVY);
@@ -126,14 +125,14 @@ public class ReportService {
                 438,
                 PDType1Font.HELVETICA,
                 10,
-                MUTED
-        );
+                MUTED);
 
         pdf.text("Indicadores destacados", 64, 376, PDType1Font.HELVETICA_BOLD, 17, NAVY);
 
         pdf.coverMetric(64, 296, 210, 64, "Pedidos", String.valueOf(data.ordersThisMonth), BLUE, SOFT_BLUE);
         pdf.coverMetric(314, 296, 210, 64, "Facturacion", money(data.revenueThisMonth), GREEN, SOFT_GREEN);
-        pdf.coverMetric(64, 210, 210, 64, "Palets vendidos", String.valueOf(data.unitsSoldThisMonth), ORANGE, SOFT_ORANGE);
+        pdf.coverMetric(64, 210, 210, 64, "Palets vendidos", String.valueOf(data.unitsSoldThisMonth), ORANGE,
+                SOFT_ORANGE);
         pdf.coverMetric(314, 210, 210, 64, "Ticket medio", money(data.avgOrderValueThisMonth), PURPLE, SOFT_PURPLE);
 
         pdf.text("SmartWorks API - Informe generado automaticamente", 64, 92, PDType1Font.HELVETICA, 10, MUTED);
@@ -142,8 +141,7 @@ public class ReportService {
     private void drawDashboard(Pdf pdf, MonthlyAnalyticsResponseV2 data) throws Exception {
         pdf.newPageWithHeader(
                 "Indicadores principales",
-                "Resumen de ventas y actividad mensual"
-        );
+                "Resumen de ventas y actividad mensual");
 
         float y = 650;
 
@@ -156,8 +154,7 @@ public class ReportService {
                 String.valueOf(data.ordersThisMonth),
                 percent(data.ordersChangePct) + " frente al mes anterior",
                 BLUE,
-                SOFT_BLUE
-        );
+                SOFT_BLUE);
 
         pdf.bigKpi(
                 310,
@@ -168,8 +165,7 @@ public class ReportService {
                 money(data.revenueThisMonth),
                 percent(data.revenueChangePct) + " frente al mes anterior",
                 GREEN,
-                SOFT_GREEN
-        );
+                SOFT_GREEN);
 
         y -= 140;
 
@@ -182,8 +178,7 @@ public class ReportService {
                 String.valueOf(data.unitsSoldThisMonth),
                 "Unidades totales registradas",
                 ORANGE,
-                SOFT_ORANGE
-        );
+                SOFT_ORANGE);
 
         pdf.bigKpi(
                 310,
@@ -194,8 +189,7 @@ public class ReportService {
                 money(data.avgOrderValueThisMonth),
                 "Media de facturacion por pedido",
                 PURPLE,
-                SOFT_PURPLE
-        );
+                SOFT_PURPLE);
 
         y -= 160;
 
@@ -212,15 +206,13 @@ public class ReportService {
                 445,
                 13,
                 PDType1Font.HELVETICA,
-                MUTED
-        );
+                MUTED);
     }
 
     private void drawOrders(Pdf pdf, MonthlyAnalyticsResponseV2 data) throws Exception {
         pdf.newPageWithHeader(
                 "Estado de pedidos",
-                "Distribucion mensual por estado y tiempo medio de entrega"
-        );
+                "Distribucion mensual por estado y tiempo medio de entrega");
 
         long total = data.pendingThisMonth + data.completedThisMonth + data.cancelledThisMonth;
 
@@ -238,7 +230,8 @@ public class ReportService {
         pdf.text("Distribucion visual", 76, y - 34, PDType1Font.HELVETICA_BOLD, 15, NAVY);
 
         if (total == 0) {
-            pdf.text("No hay pedidos suficientes para mostrar una distribucion.", 76, y - 72, PDType1Font.HELVETICA, 12, MUTED);
+            pdf.text("No hay pedidos suficientes para mostrar una distribucion.", 76, y - 72, PDType1Font.HELVETICA, 12,
+                    MUTED);
         } else {
             float barX = 76;
             float barY = y - 82;
@@ -286,74 +279,115 @@ public class ReportService {
                 y - 82,
                 PDType1Font.HELVETICA,
                 11,
+                MUTED);
+    }
+
+    private void drawProducts(Pdf pdf, MonthlyAnalyticsResponseV2 data) throws Exception {
+    pdf.newPageWithHeader(
+            "Productos destacados",
+            "Ranking mensual de productos mas vendidos"
+    );
+
+    float y = 650;
+
+    pdf.text("Productos mas vendidos", 50, y, PDType1Font.HELVETICA_BOLD, 17, NAVY);
+    y -= 30;
+
+    List<MonthlyAnalyticsResponseV2.TopProduct> products = data.topProductsByUnits;
+
+    if (products == null || products.isEmpty()) {
+        pdf.roundRect(50, y - 80, 495, 80, 24, CARD);
+        pdf.strokeRoundRect(50, y - 80, 495, 80, 24, BORDER);
+        pdf.text(
+                "Todavia no hay suficientes productos vendidos para generar un ranking.",
+                76,
+                y - 43,
+                PDType1Font.HELVETICA,
+                12,
                 MUTED
         );
-    }
+        y -= 115;
+    } else {
+        long max = products.stream()
+                .mapToLong(p -> p.quantity == null ? 0 : p.quantity)
+                .max()
+                .orElse(1);
 
-    private void drawProductsAndRecommendations(Pdf pdf, MonthlyAnalyticsResponseV2 data) throws Exception {
-        pdf.newPageWithHeader(
-                "Productos y recomendaciones",
-                "Ranking mensual y conclusiones automaticas"
-        );
+        int index = 1;
 
-        float y = 650;
+        for (MonthlyAnalyticsResponseV2.TopProduct product : products) {
+            long quantity = product.quantity == null ? 0 : product.quantity;
+            float percentage = max == 0 ? 0 : (float) quantity / max;
 
-        pdf.text("Productos mas vendidos", 50, y, PDType1Font.HELVETICA_BOLD, 17, NAVY);
-        y -= 30;
+            pdf.productRow(
+                    50,
+                    y,
+                    495,
+                    index,
+                    product.name,
+                    product.productId,
+                    quantity,
+                    percentage
+            );
 
-        List<MonthlyAnalyticsResponseV2.TopProduct> products = data.topProductsByUnits;
+            y -= 64;
+            index++;
 
-        if (products == null || products.isEmpty()) {
-            pdf.roundRect(50, y - 80, 495, 80, 24, CARD);
-            pdf.strokeRoundRect(50, y - 80, 495, 80, 24, BORDER);
-            pdf.text("Todavia no hay suficientes productos vendidos para generar un ranking.", 76, y - 43, PDType1Font.HELVETICA, 12, MUTED);
-            y -= 115;
-        } else {
-            long max = products.stream()
-                    .mapToLong(p -> p.quantity == null ? 0 : p.quantity)
-                    .max()
-                    .orElse(1);
-
-            int index = 1;
-
-            for (MonthlyAnalyticsResponseV2.TopProduct product : products) {
-                long quantity = product.quantity == null ? 0 : product.quantity;
-                float percentage = max == 0 ? 0 : (float) quantity / max;
-
-                pdf.productRow(
-                        50,
-                        y,
-                        495,
-                        index,
-                        product.name,
-                        product.productId,
-                        quantity,
-                        percentage
-                );
-
-                y -= 64;
-                index++;
-
-                if (index > 5) break;
-            }
-
-            y -= 20;
+            if (index > 5) break;
         }
 
-        pdf.text("Recomendaciones", 50, y, PDType1Font.HELVETICA_BOLD, 17, NAVY);
-        y -= 32;
-
-        pdf.recommendation(50, y, 495, "Pedidos", recommendationOrders(data), BLUE, SOFT_BLUE);
-        y -= 88;
-
-        pdf.recommendation(50, y, 495, "Facturacion", recommendationRevenue(data), GREEN, SOFT_GREEN);
-        y -= 88;
-
-        pdf.recommendation(50, y, 495, "Inventario", recommendationProducts(data), ORANGE, SOFT_ORANGE);
-        y -= 88;
-
-        pdf.recommendation(50, y, 495, "Entrega", recommendationDelivery(data), PURPLE, SOFT_PURPLE);
+        y -= 20;
     }
+
+    pdf.roundRect(50, 128, 495, 100, 24, SOFT_BLUE);
+    pdf.text("Lectura de inventario", 76, 190, PDType1Font.HELVETICA_BOLD, 14, NAVY);
+    pdf.paragraph(
+            recommendationProducts(data),
+            76,
+            166,
+            440,
+            11,
+            PDType1Font.HELVETICA,
+            MUTED
+    );
+}
+
+private void drawRecommendations(Pdf pdf, MonthlyAnalyticsResponseV2 data) throws Exception {
+    pdf.newPageWithHeader(
+            "Recomendaciones",
+            "Conclusiones automaticas para mejorar la gestion"
+    );
+
+    float y = 650;
+
+    pdf.text("Recomendaciones operativas", 50, y, PDType1Font.HELVETICA_BOLD, 17, NAVY);
+    y -= 34;
+
+    pdf.recommendation(50, y, 495, "Pedidos", recommendationOrders(data), BLUE, SOFT_BLUE);
+    y -= 92;
+
+    pdf.recommendation(50, y, 495, "Facturacion", recommendationRevenue(data), GREEN, SOFT_GREEN);
+    y -= 92;
+
+    pdf.recommendation(50, y, 495, "Inventario", recommendationProducts(data), ORANGE, SOFT_ORANGE);
+    y -= 92;
+
+    pdf.recommendation(50, y, 495, "Entrega", recommendationDelivery(data), PURPLE, SOFT_PURPLE);
+
+    pdf.roundRect(50, 124, 495, 82, 24, CARD);
+    pdf.strokeRoundRect(50, 124, 495, 82, 24, BORDER);
+
+    pdf.text("Conclusion", 76, 176, PDType1Font.HELVETICA_BOLD, 14, NAVY);
+    pdf.paragraph(
+            "Este informe permite revisar rapidamente la evolucion mensual del negocio y preparar una exposicion clara de los resultados principales de SmartWorks.",
+            76,
+            154,
+            440,
+            11,
+            PDType1Font.HELVETICA,
+            MUTED
+    );
+}
 
     private void drawFooters(Pdf pdf, MonthlyAnalyticsResponseV2 data) throws Exception {
         int totalPages = pdf.pageCount();
@@ -363,8 +397,7 @@ public class ReportService {
                     i,
                     "SmartWorks - Reporte mensual " + monthName(data.month) + " " + data.year,
                     i + 1,
-                    totalPages
-            );
+                    totalPages);
         }
     }
 
@@ -424,7 +457,8 @@ public class ReportService {
 
         MonthlyAnalyticsResponseV2.TopProduct top = data.topProductsByUnits.get(0);
 
-        return "El producto con mayor salida es \"" + safe(top.name) + "\". Conviene vigilar su stock y asegurar disponibilidad.";
+        return "El producto con mayor salida es \"" + safe(top.name)
+                + "\". Conviene vigilar su stock y asegurar disponibilidad.";
     }
 
     private String recommendationDelivery(MonthlyAnalyticsResponseV2 data) {
@@ -453,7 +487,8 @@ public class ReportService {
     }
 
     private String pct(long value, long total) {
-        if (total == 0) return "0%";
+        if (total == 0)
+            return "0%";
         return Math.round((value * 100.0) / total) + "%";
     }
 
@@ -462,7 +497,8 @@ public class ReportService {
     }
 
     private String safe(String text) {
-        if (text == null || text.isBlank()) return "Sin nombre";
+        if (text == null || text.isBlank())
+            return "Sin nombre";
         return text;
     }
 
@@ -539,8 +575,7 @@ public class ReportService {
                     target,
                     PDPageContentStream.AppendMode.APPEND,
                     true,
-                    true
-            )) {
+                    true)) {
                 footer.setStrokingColor(BORDER);
                 footer.moveTo(60, 64);
                 footer.lineTo(535, 64);
@@ -560,8 +595,7 @@ public class ReportService {
                 String title,
                 String value,
                 Color color,
-                Color bg
-        ) throws Exception {
+                Color bg) throws Exception {
             roundRect(x, y, w, h, 18, bg);
             text(title, x + 18, y + h - 24, PDType1Font.HELVETICA_BOLD, 11, NAVY);
             text(value, x + 18, y + 18, PDType1Font.HELVETICA_BOLD, 18, color);
@@ -576,8 +610,7 @@ public class ReportService {
                 String value,
                 String subtitle,
                 Color color,
-                Color bg
-        ) throws Exception {
+                Color bg) throws Exception {
             roundRect(x, y - h, w, h, 24, CARD);
             strokeRoundRect(x, y - h, w, h, 24, BORDER);
 
@@ -597,8 +630,7 @@ public class ReportService {
                 String title,
                 long value,
                 Color color,
-                Color bg
-        ) throws Exception {
+                Color bg) throws Exception {
             roundRect(x, y - h, w, h, 22, bg);
             text(title, x + 18, y - 28, PDType1Font.HELVETICA_BOLD, 11, NAVY);
             text(String.valueOf(value), x + 18, y - 58, PDType1Font.HELVETICA_BOLD, 24, color);
@@ -612,8 +644,7 @@ public class ReportService {
                 String name,
                 Long productId,
                 long quantity,
-                float percentage
-        ) throws Exception {
+                float percentage) throws Exception {
             float h = 52;
 
             roundRect(x, y - h, w, h, 18, CARD);
@@ -644,8 +675,7 @@ public class ReportService {
                 String title,
                 String text,
                 Color color,
-                Color bg
-        ) throws Exception {
+                Color bg) throws Exception {
             float h = 72;
 
             roundRect(x, y - h, w, h, 20, bg);
@@ -750,8 +780,7 @@ public class ReportService {
                 float y,
                 PDType1Font font,
                 float size,
-                Color color
-        ) throws Exception {
+                Color color) throws Exception {
             stream.beginText();
             stream.setNonStrokingColor(color);
             stream.setFont(font, size);
@@ -761,7 +790,8 @@ public class ReportService {
         }
 
         private String safeText(String text) {
-            if (text == null) return "";
+            if (text == null)
+                return "";
 
             return text
                     .replace("€", "EUR")
