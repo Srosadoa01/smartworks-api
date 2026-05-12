@@ -5,16 +5,29 @@ import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.smartworks.smartworks_api.security.JwtAuthFilter;
+
 @Configuration
 @Profile("prod")
 public class ProdSecurityConfig {
+
+    private final JwtAuthFilter jwtAuthFilter;
+
+    public ProdSecurityConfig(JwtAuthFilter jwtAuthFilter) {
+        this.jwtAuthFilter = jwtAuthFilter;
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -26,16 +39,18 @@ public class ProdSecurityConfig {
                         .requestMatchers("/health", "/error").permitAll()
                         .requestMatchers("/auth/**").permitAll()
 
-                        // TEMPORAL para probar la app
+                        // TEMPORAL: los dejamos abiertos hasta conectar Flutter con token
+                        .requestMatchers("/dashboard/**").permitAll()
                         .requestMatchers("/products/**").permitAll()
                         .requestMatchers("/customers/**").permitAll()
                         .requestMatchers("/orders/**").permitAll()
-                        .requestMatchers("/dashboard/**").permitAll()
                         .requestMatchers("/chat/**").permitAll()
                         .requestMatchers("/analytics/**").permitAll()
                         .requestMatchers("/reports/**").permitAll()
 
-                        .anyRequest().authenticated());
+                        .anyRequest().authenticated()
+                )
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -46,10 +61,12 @@ public class ProdSecurityConfig {
 
         config.setAllowedOriginPatterns(List.of(
                 "http://localhost:*",
-                "http://127.0.0.1:*"));
+                "http://127.0.0.1:*"
+        ));
 
         config.setAllowedMethods(List.of(
-                "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+                "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"
+        ));
 
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(false);
@@ -58,5 +75,17 @@ public class ProdSecurityConfig {
         source.registerCorsConfiguration("/**", config);
 
         return source;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(
+            AuthenticationConfiguration config
+    ) throws Exception {
+        return config.getAuthenticationManager();
     }
 }
